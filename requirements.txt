@@ -1,2 +1,5 @@
 requests>=2.31
 python-dotenv>=1.0
+
+# Browser backend. Not needed if you only ever use --backend api.
+playwright>=1.40

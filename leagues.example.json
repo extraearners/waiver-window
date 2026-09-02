@@ -1,12 +1,11 @@
 {
   "league_A": {
-    "league_id": "49039",
-    "team_id": null,
-    "note": "https://football.fantasysports.yahoo.com/f1/49039 - team_id still needed"
+    "league_id": "000000",
+    "team_id": "1",
+    "_comment": "From your league URL: football.fantasysports.yahoo.com/f1/{league_id}/{team_id}"
   },
   "league_B": {
-    "league_id": "833119",
-    "team_id": "7",
-    "note": "https://football.fantasysports.yahoo.com/f1/833119/7"
+    "league_id": "000000",
+    "team_id": "1"
   }
 }

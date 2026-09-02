@@ -1,0 +1,22 @@
+{
+  "_comment": "Yahoo's markup changes without notice. Run `python -m waiver_window.probe` while logged in to re-derive these, then edit here. No code change needed.",
+
+  "players_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/players?status=ALL&search={query}&sort=AR",
+  "roster_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/{team_id}",
+  "add_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/addplayer?apid={player_id}",
+
+  "player_row": "table tbody tr",
+  "player_name_cell": "a[href*='/nfl/players/']",
+  "player_status_cell": ".ysf-player-status, span.status, td:nth-child(2)",
+
+  "roster_player_link": "a[href*='/nfl/players/']",
+
+  "drop_radio_for": "input[type='radio'][value*='{player_id}']",
+  "submit_add": "button[type='submit'], input[type='submit'][value*='Submit']",
+  "confirm_add": "button:has-text('Confirm'), input[value*='Confirm']",
+
+  "status_text_map": {
+    "FA": "freeagents",
+    "W": "waivers"
+  }
+}

@@ -93,6 +93,27 @@ happened before I wake up.
 
 ---
 
+## Two backends
+
+The decision of *what* to do never depends on *how* it is done. Both paths take
+the same validated pick list and pass through the same free-agent gate.
+
+| | `--backend api` | `--backend browser` (default) |
+|---|---|---|
+| Reaches Yahoo via | Fantasy Sports API | a real signed-in browser session |
+| Needs | `fspt-w`, granted by manual review | a session captured once by hand |
+| Speed | ~200ms per action | ~1-2s per action |
+| Fragility | stable, versioned | breaks when Yahoo changes markup |
+
+The browser path exists because the API's write scope is granted by review and
+may not arrive in time. It reuses cookies from a sign-in the author performed
+themselves; no password is handled, requested, or stored by this code. The saved
+session file is written 0600 and gitignored.
+
+Selectors for the browser path live in `selectors.json`, not in code, and
+`python -m waiver_window.probe` reports what they actually matched on the live
+page so they can be corrected without guessing.
+
 ## Yahoo API usage
 
 `fantasysports.yahooapis.com/fantasy/v2`
@@ -150,9 +171,18 @@ cp .env.example .env             # Yahoo client id and secret
 cp leagues.example.json leagues.json
 cp picks.example.csv picks.csv
 
-python -m waiver_window.auth     # one-time OAuth consent
-python -m waiver_window.leagues  # find your league and team keys
-python -m waiver_window.run --dry-run -v
+cp selectors.json selectors.json   # already present; edit if Yahoo changes
+
+# Browser path - works today, no API approval needed
+playwright install chromium
+python -m waiver_window.login      # sign in yourself; cookies saved locally
+python -m waiver_window.probe "Justin Jefferson"
+python -m waiver_window.run --backend browser --dry-run -v
+
+# API path - once Yahoo grants read/write
+python -m waiver_window.auth
+python -m waiver_window.leagues
+python -m waiver_window.run --backend api --dry-run -v
 ```
 
 Full notes in [docs/setup.md](docs/setup.md). Scheduling on macOS via `launchd`
@@ -162,9 +192,10 @@ and `pmset` in [docs/scheduling.md](docs/scheduling.md).
 
 ## Status
 
-Active personal project. The read path, name resolution, polling loop and
-free-agent gate are implemented and exercised. The submitting call is written
-but gated behind read/write API access, which is pending approval.
+Active personal project. The pick list, name resolution, polling loop and
+free-agent gate are implemented and exercised, and the browser backend runs
+end to end. The API backend's submitting call is written but gated behind
+read/write access, which is pending Yahoo's review.
 
 ## License
 

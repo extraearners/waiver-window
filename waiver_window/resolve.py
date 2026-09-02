@@ -27,8 +27,10 @@ class ResolutionError(RuntimeError):
 @dataclass(frozen=True)
 class League:
     alias: str
-    league_key: str
-    team_key: str
+    league_id: str
+    team_id: str
+    league_key: str = ""  # empty on the browser path, which needs no game id
+    team_key: str = ""
 
 
 def _normalise(name: str) -> str:
@@ -81,6 +83,8 @@ def build_leagues(client: YahooClient, league_map: dict[str, dict]) -> dict[str,
         league_key = f"{game_id}.l.{league_id}"
         leagues[alias] = League(
             alias=alias,
+            league_id=league_id,
+            team_id=team_id,
             league_key=league_key,
             team_key=f"{league_key}.t.{team_id}",
         )
@@ -122,3 +126,22 @@ def roster_player_keys(client: YahooClient, team_key: str) -> dict[str, str]:
         for p in parse.players(payload)
         if parse.full_name(p)
     }
+
+
+def build_leagues_offline(league_map: dict[str, dict]) -> dict[str, League]:
+    """Expand the alias map without calling Yahoo.
+
+    The browser backend addresses leagues by their plain URL ids, so it needs
+    no game id and no authenticated API call.
+    """
+    leagues: dict[str, League] = {}
+    for alias, entry in league_map.items():
+        league_id = str(entry.get("league_id") or "").strip()
+        team_id = str(entry.get("team_id") or "").strip()
+        if not league_id or not team_id:
+            raise ResolutionError(
+                f"League '{alias}' needs both league_id and team_id."
+            )
+        leagues[alias] = League(alias=alias, league_id=league_id, team_id=team_id)
+        log.info("%s -> league %s, team %s", alias, league_id, team_id)
+    return leagues

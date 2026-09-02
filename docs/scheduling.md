@@ -35,7 +35,7 @@ Save as `~/Library/LaunchAgents/com.local.waiver-window.plist`:
     <string>/usr/bin/env</string>
     <string>bash</string>
     <string>-lc</string>
-    <string>cd ~/waiver-window &amp;&amp; .venv/bin/python -m waiver_window.run</string>
+    <string>cd ~/waiver-window &amp;&amp; .venv/bin/python -m waiver_window.run --backend browser</string>
   </array>
 
   <key>StartCalendarInterval</key>
@@ -76,5 +76,5 @@ Run a dry run at an arbitrary time first. It walks the full path — pick list,
 key resolution, polling, match — and logs the transaction it would have sent.
 
 ```bash
-python -m waiver_window.run --dry-run -v
+python -m waiver_window.run --backend browser --dry-run -v
 ```

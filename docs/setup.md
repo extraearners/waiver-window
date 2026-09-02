@@ -60,3 +60,43 @@ python -m waiver_window.run --dry-run -v
 
 Nothing is submitted. Check the log for resolved player keys and the
 transaction the tool would have sent.
+
+---
+
+## Browser backend
+
+Works without waiting on Yahoo's API review. Uses a session you authenticate
+yourself.
+
+```bash
+pip install playwright
+playwright install chromium
+python -m waiver_window.login
+```
+
+`login` opens a visible browser at Yahoo Fantasy and waits. Sign in there, by
+hand, then press Enter in the terminal. Cookies are saved to
+`storage_state.json` (mode 0600, gitignored).
+
+**The script never asks for or handles a password.** It reads the cookies Yahoo
+issued to your own sign-in. Treat the saved file like a password — anyone with
+it is logged in as you. Delete it to revoke.
+
+### Calibrating selectors
+
+Yahoo's markup changes without notice, so selectors live in `selectors.json`.
+To see what they actually match:
+
+```bash
+python -m waiver_window.probe "Justin Jefferson"
+```
+
+Read-only — it clicks nothing. It prints each matched row, the raw status text,
+and how that text was mapped. If names or statuses look wrong, edit
+`selectors.json` and run it again. No code change needed.
+
+### Session expiry
+
+Yahoo sessions do not last forever. If `probe` reports a redirect to sign-in,
+re-run `login`. Worth checking on a Sunday rather than discovering it at
+midnight on Wednesday.
