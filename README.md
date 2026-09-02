@@ -44,10 +44,15 @@ can edit it from my phone before the deadline.
 |---------|----------|--------------------|----------------|--------------|
 | league_A | 1 | Jaylen Wright | Tyler Boyd | 10 |
 | league_A | 2 | Bucky Irving | Tyler Boyd | 10 |
-| league_B | 1 | Jaylen Wright | Zay Jones | 10 |
+| league_B | 1 | Ray Davis | *(blank)* | 10 |
 
 `priority` is a fallback order. If the first target is taken by another manager,
 the tool moves to the next one for that league, reusing the same roster slot.
+
+`drop_player` may be left blank when the roster already has an open spot. In
+that case the tool selects no drop at all. If Yahoo then refuses the add because
+a drop was required after all, that is reported and the row is left alone — the
+tool does not pick somebody to cut in order to force the move through.
 
 ### 2. Preparation pass
 
@@ -149,8 +154,9 @@ way to finish that action.
 - **Free-agent gate.** `transactions.assert_free_agent` refuses any player not
   confirmed as `freeagents`. An unknown or missing status is treated as "still
   on waivers" and declined — it fails closed.
-- **Explicit pairing.** Every pickup names the player it replaces. The tool
-  will not choose a drop.
+- **Explicit pairing.** A pickup either names the player it replaces or names
+  none, meaning an open slot. The tool never chooses a drop itself, in either
+  case.
 - **Bounded writes.** At most one successful add/drop per league per run.
 - **Request budget.** A hard cap on total API calls per run, with exponential
   backoff on `429` and `5xx`.

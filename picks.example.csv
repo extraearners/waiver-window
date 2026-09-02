@@ -1,6 +1,4 @@
 league,priority,add_player,drop_player,max_wait_min
 league_A,1,Jaylen Wright,Tyler Boyd,10
 league_A,2,Bucky Irving,Tyler Boyd,10
-league_A,3,Ray Davis,Tyler Boyd,10
-league_B,1,Jaylen Wright,Zay Jones,10
-league_B,2,Bucky Irving,Zay Jones,10
+league_B,1,Ray Davis,,10

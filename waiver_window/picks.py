@@ -14,7 +14,8 @@ from pathlib import Path
 
 import requests
 
-REQUIRED_COLUMNS = {"league", "priority", "add_player", "drop_player"}
+REQUIRED_COLUMNS = {"league", "priority", "add_player"}
+OPTIONAL_COLUMNS = {"drop_player", "max_wait_min"}
 
 
 @dataclass(frozen=True)
@@ -22,11 +23,17 @@ class Pick:
     league: str
     priority: int
     add_player: str
-    drop_player: str
+    drop_player: str = ""
     max_wait_min: int = 10
 
+    @property
+    def needs_drop(self) -> bool:
+        """False when the pickup is meant to fill an already-open roster slot."""
+        return bool(self.drop_player)
+
     def __str__(self) -> str:
-        return f"[{self.league} #{self.priority}] +{self.add_player} / -{self.drop_player}"
+        tail = f" / -{self.drop_player}" if self.drop_player else " (open slot)"
+        return f"[{self.league} #{self.priority}] +{self.add_player}{tail}"
 
 
 class PickListError(ValueError):
@@ -66,17 +73,16 @@ def load(source: str) -> list[Pick]:
                 league=row["league"].strip(),
                 priority=int(row["priority"]),
                 add_player=row["add_player"].strip(),
-                drop_player=row["drop_player"].strip(),
+                # Blank means "only if a slot is already open". The tool will
+                # not choose a drop on its own in that case.
+                drop_player=(row.get("drop_player") or "").strip(),
                 max_wait_min=int(row.get("max_wait_min") or 10),
             )
         except (TypeError, ValueError) as exc:
             raise PickListError(f"Row {line_no} is malformed: {exc}") from exc
 
-        if not pick.add_player or not pick.drop_player:
-            raise PickListError(
-                f"Row {line_no}: both add_player and drop_player are required. "
-                "Every pickup must name the player it replaces."
-            )
+        if not pick.add_player:
+            raise PickListError(f"Row {line_no}: add_player is required.")
         picks.append(pick)
 
     if not picks:

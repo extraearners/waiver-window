@@ -214,6 +214,14 @@ class BrowserBackend(Backend):
                 log.error("%s: could not load the acquisition page: %s", pick, exc)
                 continue
 
+            if not pick.needs_drop:
+                # Filling an open slot. No drop is resolved, and none will be
+                # chosen later either.
+                targets.append(Target(pick, add_ref=entry["player_id"], drop_ref=""))
+                log.info("Ready: %s  (apid %s, no drop, currently %s)",
+                         pick, entry["player_id"], entry["status"] or "unknown")
+                continue
+
             # The dpid list on this page *is* the roster, taken from the form
             # that would post the drop — so it needs no separate roster lookup.
             drops = self.dpid_map()
@@ -314,25 +322,43 @@ class BrowserBackend(Backend):
                 "waiver claim."
             )
 
-        drop_control = self._find_drop_control(target.drop_ref, target.pick.drop_player)
-        if drop_control is None:
-            return Outcome(
-                ok=False,
-                detail=(
-                    f"No drop control for {target.pick.drop_player!r} on the page. "
-                    "Not submitting a partial move."
-                ),
+        drop_control = None
+        if target.pick.needs_drop:
+            drop_control = self._find_drop_control(
+                target.drop_ref, target.pick.drop_player
             )
+            if drop_control is None:
+                return Outcome(
+                    ok=False,
+                    detail=(
+                        f"No drop control for {target.pick.drop_player!r} on the "
+                        "page. Not submitting a partial move."
+                    ),
+                )
 
         if dry_run:
-            log.info(
-                "[dry-run] would add %s (apid %s) and drop %s (dpid %s) in %s",
-                target.pick.add_player, target.add_ref,
-                target.pick.drop_player, target.drop_ref, league.alias,
-            )
+            if target.pick.needs_drop:
+                log.info(
+                    "[dry-run] would add %s (apid %s) and drop %s (dpid %s) in %s",
+                    target.pick.add_player, target.add_ref,
+                    target.pick.drop_player, target.drop_ref, league.alias,
+                )
+            else:
+                log.info(
+                    "[dry-run] would add %s (apid %s) into an open slot in %s, "
+                    "selecting no drop",
+                    target.pick.add_player, target.add_ref, league.alias,
+                )
             return Outcome(ok=True, detail="dry run — nothing submitted")
 
-        drop_control.check()
+        if drop_control is not None:
+            drop_control.check()
+        else:
+            # No drop was named, so none is chosen. If Yahoo turns out to
+            # require one the submit fails and is reported — the tool does not
+            # pick a player to cut in order to get the add through.
+            log.info("No drop named for %s; submitting against an open slot.",
+                     target.pick.add_player)
 
         submit = self._find_submit()
         if submit is None:
@@ -414,6 +440,17 @@ class BrowserBackend(Backend):
         if any(marker in body for marker in lost):
             return Outcome(ok=False, detail="lost the race — " + body[:180],
                            lost_race=True)
+
+        full = ("must drop", "roster is full", "too many players", "exceed the roster")
+        if any(marker in body for marker in full):
+            return Outcome(
+                ok=False,
+                detail=(
+                    "Yahoo requires a drop for this add, and the pick named none. "
+                    "Add a drop_player for this row — the tool will not choose "
+                    "one. Page said: " + body[:150]
+                ),
+            )
         if any(marker in body for marker in ("error", "unable", "cannot")):
             return Outcome(ok=False, detail=body[:250])
         if target.pick.add_player.split()[-1].lower() in body:

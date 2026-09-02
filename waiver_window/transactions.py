@@ -20,25 +20,30 @@ from .client import YahooClient
 
 log = logging.getLogger(__name__)
 
-_TEMPLATE = """\
-<fantasy_content>
-  <transaction>
-    <type>add/drop</type>
-    <players>
+_ADD_BLOCK = """\
       <player>
         <player_key>{add_key}</player_key>
         <transaction_data>
           <type>add</type>
           <destination_team_key>{team_key}</destination_team_key>
         </transaction_data>
-      </player>
+      </player>"""
+
+_DROP_BLOCK = """
       <player>
         <player_key>{drop_key}</player_key>
         <transaction_data>
           <type>drop</type>
           <source_team_key>{team_key}</source_team_key>
         </transaction_data>
-      </player>
+      </player>"""
+
+_TEMPLATE = """\
+<fantasy_content>
+  <transaction>
+    <type>{ttype}</type>
+    <players>
+{players}
     </players>
   </transaction>
 </fantasy_content>
@@ -51,6 +56,15 @@ _RACE_MARKERS = (
     "no longer a free agent",
     "is not a free agent",
     "player is on another team",
+)
+
+# Yahoo refusing the move because the roster has no open spot. Distinct from
+# losing a race: the pick simply named no player to drop.
+_ROSTER_FULL_MARKERS = (
+    "must drop",
+    "roster is full",
+    "too many players",
+    "exceed the roster",
 )
 
 
@@ -70,6 +84,14 @@ class Result:
         lowered = self.detail.lower()
         return any(marker in lowered for marker in _RACE_MARKERS)
 
+    @property
+    def roster_full(self) -> bool:
+        """The add needed a drop and the pick named none."""
+        if self.ok:
+            return False
+        lowered = self.detail.lower()
+        return any(marker in lowered for marker in _ROSTER_FULL_MARKERS)
+
 
 def assert_free_agent(ownership_type: str, player_name: str) -> None:
     """Refuse anything that would spend a waiver claim.
@@ -85,8 +107,18 @@ def assert_free_agent(ownership_type: str, player_name: str) -> None:
         )
 
 
-def build_payload(team_key: str, add_key: str, drop_key: str) -> str:
-    return _TEMPLATE.format(add_key=add_key, drop_key=drop_key, team_key=team_key)
+def build_payload(team_key: str, add_key: str, drop_key: str = "") -> str:
+    """Build the transaction body.
+
+    An empty drop_key means the roster already has an open slot, so the
+    transaction is a plain `add` and names no player to cut.
+    """
+    players = _ADD_BLOCK.format(add_key=add_key, team_key=team_key)
+    if drop_key:
+        players += _DROP_BLOCK.format(drop_key=drop_key, team_key=team_key)
+    return _TEMPLATE.format(
+        ttype="add/drop" if drop_key else "add", players=players
+    )
 
 
 def submit_add_drop(
@@ -94,7 +126,7 @@ def submit_add_drop(
     league_key: str,
     team_key: str,
     add_key: str,
-    drop_key: str,
+    drop_key: str = "",
     *,
     ownership_type: str,
     player_name: str = "",
