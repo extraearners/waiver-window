@@ -26,6 +26,14 @@ log = logging.getLogger(__name__)
 
 PLAYER_ID_RE = re.compile(r"/nfl/players/(\d+)")
 
+# Yahoo draws its badges with a private-use icon font. Those codepoints carry
+# no meaning here and would otherwise pollute any text we read.
+PRIVATE_USE = re.compile("[\\ue000-\\uf8ff]")
+
+
+def clean(text: str) -> str:
+    return PRIVATE_USE.sub("", text or "").strip()
+
 
 class BrowserUnavailable(RuntimeError):
     """Playwright or the saved session is missing."""
@@ -82,7 +90,7 @@ class BrowserBackend(Backend):
             link = row.query_selector(self.sel["player_name_cell"])
             if not link:
                 continue
-            if _normalise(link.inner_text()) != target:
+            if _normalise(clean(link.inner_text())) != target:
                 continue
             match = PLAYER_ID_RE.search(link.get_attribute("href") or "")
             if match:
@@ -96,7 +104,7 @@ class BrowserBackend(Backend):
         "not confirmed free", so an unfamiliar label fails closed.
         """
         cell = row.query_selector(self.sel["player_status_cell"])
-        text = (cell.inner_text().strip() if cell else "").upper()
+        text = clean(cell.inner_text()).upper() if cell else ""
         for label, status in self.sel["status_text_map"].items():
             if label.upper() in text:
                 return status
@@ -123,9 +131,9 @@ class BrowserBackend(Backend):
             self.warm_up(league)
 
         roster_names = {
-            _normalise(el.inner_text())
+            _normalise(clean(el.inner_text()))
             for el in self.page.query_selector_all(self.sel["roster_player_link"])
-            if el.inner_text().strip()
+            if clean(el.inner_text())
         }
 
         targets: list[Target] = []
@@ -214,7 +222,7 @@ class BrowserBackend(Backend):
         """Pick the radio/checkbox matching the named drop player."""
         target = _normalise(drop_player)
         for row in self._rows():
-            if target not in _normalise(row.inner_text()):
+            if target not in _normalise(clean(row.inner_text())):
                 continue
             control = row.query_selector("input[type='radio'], input[type='checkbox']")
             if control:
