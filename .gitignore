@@ -1,0 +1,10 @@
+.env
+tokens.json
+picks.csv
+storage_state.json
+logs/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
