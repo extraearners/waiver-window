@@ -1,19 +1,24 @@
 # Waiver Window
 
-A personal roster-management tool for Yahoo Fantasy Football.
+A personal roster tool for Yahoo Fantasy Football.
 
-Waiver Window reads my roster, league settings, and free-agent pool; ranks
-available players against my current lineup using historical and projected
-stats; and then executes the add/drop transactions I have pre-approved, at the
-time my league's waivers clear.
+In my leagues, waiver claims lock at 11:59pm PT on Tuesday. Shortly after that
+they process, and every player nobody claimed converts to a free agent — first
+manager to add them gets them.
 
-I live outside the United States. My leagues clear waivers at a time that falls
-in the middle of the night locally. This tool exists so that the pickups I have
-already decided on get submitted at that time without me being awake for it.
+I make my waiver claims by hand, before the deadline. What I cannot do is be
+awake for the free-agent window that opens minutes later: I live outside the
+United States and it lands in the middle of my night. This tool watches that
+window for me and adds a player from a list I wrote earlier the same evening.
 
-**It does not decide anything on its own.** Every add, and the drop it is paired
-with, is written down by me in advance. The tool executes a fixed, ordered list
-and nothing else.
+**It never submits a waiver claim.** Adding a free agent costs nothing;
+submitting against a player who is still on waivers would spend a waiver
+claim I want to keep. So the tool only ever acts on a player Yahoo has
+confirmed has ownership status `freeagents`, and refuses otherwise — including
+when Yahoo does not report a status at all.
+
+**It decides nothing.** Every add, and the drop it is paired with, is written
+down by me in advance. The tool executes a fixed, ordered list and nothing else.
 
 ---
 
@@ -21,8 +26,9 @@ and nothing else.
 
 - **Users:** 1 (the author)
 - **Leagues:** 2 private Yahoo Fantasy Football leagues, my own teams only
-- **Not distributed, not monetized, no third-party users**
-- **No data resale, no bulk collection, no redistribution of Yahoo data**
+- **Writes:** free-agent add/drop on my own roster. Nothing else.
+- **Never:** waiver claims, trades, league settings, other managers' teams
+- **Not distributed, not monetized, no third-party users, no data resale**
 - **Runs roughly once per week** during the NFL regular season
 
 ---
@@ -31,8 +37,8 @@ and nothing else.
 
 ### 1. Pick list
 
-Targets live in a small table (a published Google Sheet, or a local CSV). I fill
-it in before the waiver deadline, from my phone if I'm away from my computer.
+Targets live in a small table — a local CSV, or a published Google Sheet so I
+can edit it from my phone before the deadline.
 
 | league | priority | add_player | drop_player | max_wait_min |
 |---------|----------|--------------------|----------------|--------------|
@@ -40,110 +46,125 @@ it in before the waiver deadline, from my phone if I'm away from my computer.
 | league_A | 2 | Bucky Irving | Tyler Boyd | 10 |
 | league_B | 1 | Jaylen Wright | Zay Jones | 10 |
 
-`priority` is a fallback order. If the first target is claimed by another manager
-before the tool reaches it, it moves to the next one for that league, reusing the
-same roster slot.
+`priority` is a fallback order. If the first target is taken by another manager,
+the tool moves to the next one for that league, reusing the same roster slot.
 
 ### 2. Preparation pass
 
-Shortly before the waiver clear time, the tool:
+Before the window opens, the tool:
 
-- loads the pick list
-- resolves each player name to a Yahoo player key
+- loads and validates the pick list
+- resolves every player name to a Yahoo player key, requiring an exact match
+- confirms each `drop_player` is actually on my roster
 - refreshes the OAuth token
-- verifies that every named `drop_player` is actually on my roster
-- verifies that each `add_player` is currently unavailable (i.e. still on waivers)
 
-If a row fails validation it is reported and skipped. It is never guessed at.
+A row that fails any of these is reported and skipped. It is never guessed at.
+Doing this early means a typo surfaces while I can still fix it, rather than
+mid-race.
 
-### 3. Execution
+### 3. The window
 
-Waivers do not clear at a mathematically exact instant — Yahoo's processing takes
-some minutes and the lag varies week to week. So the tool does not fire blindly
-at a fixed timestamp. It polls each target's ownership status and submits the
-transaction the moment that status changes to free agent.
+Waivers do not process at a mathematically exact instant — Yahoo takes some
+minutes and the lag varies week to week. So the tool does not fire at a fixed
+timestamp. It polls its targets' ownership status and acts on the change.
 
 ```
-poll  ->  status still "waivers"     ->  wait 250ms, poll again
-poll  ->  status now "freeagents"    ->  submit add/drop
-      ->  success                    ->  log, move to next league
-      ->  rejected (someone else won) ->  advance to next priority
-      ->  max_wait_min elapsed        ->  give up, log, notify
+for each target, in priority order:
+    status == "waivers"     -> not mine to take yet, keep watching
+    status == "team"        -> someone claimed them, drop this target
+    status == "freeagents"  -> add immediately, dropping the paired player
+        accepted            -> done for this league
+        rejected (too slow) -> advance to the next priority
+    max_wait_min elapsed    -> give up, log it
 ```
 
-Polling is rate-limited, backs off on any error response, and stops entirely once
-the list is resolved or the wait budget is spent.
+All targets in a league are checked each pass rather than blocking on the
+first, so a lower-priority player who frees up early is not missed while
+waiting on one that never clears.
+
+Polling is rate-limited, backs off on any error response, and stops as soon as
+the list resolves or the wait budget is spent. At most one successful add/drop
+per league per run.
 
 ### 4. Reporting
 
-Every run writes a log line per attempt — timestamp, league, player, outcome —
-and sends a summary notification so I can see what happened before I wake up.
+A log line per attempt — timestamp, league, player, outcome — so I can see what
+happened before I wake up.
 
 ---
 
 ## Yahoo API usage
 
-The tool talks to the Yahoo Fantasy Sports API (`fantasysports.yahooapis.com/fantasy/v2`).
+`fantasysports.yahooapis.com/fantasy/v2`
 
-**Read endpoints used**
+**Read**
 
 | Purpose | Endpoint |
 |---|---|
-| League settings, waiver rules | `/league/{league_key}/settings` |
+| Discover the current season's game id | `/users;use_login=1/games;game_keys=nfl/leagues` |
 | My roster | `/team/{team_key}/roster` |
-| Free agent / waiver pool, ownership status | `/league/{league_key}/players;status=A` |
-| Player metadata and season stats | `/league/{league_key}/players;player_keys=...;out=stats` |
+| Resolve a player name to a key | `/league/{league_key}/players;search=...` |
+| Ownership status (the poll) | `/league/{league_key}/players;player_keys=...;out=ownership` |
 
-**Write endpoint used**
+**Write**
 
 | Purpose | Endpoint |
 |---|---|
-| Submit a pre-approved add/drop | `POST /league/{league_key}/transactions` |
+| Add a confirmed free agent, dropping a named player | `POST /league/{league_key}/transactions` |
 
-Writes are limited to `add/drop` transactions on my own roster. The tool does not
-propose trades, does not modify league settings, and does not act on any team
-other than mine.
+The transaction body is `add/drop` and carries no `faab_bid` — by design, since
+the tool never participates in waivers.
 
 ### Why read/write access is required
 
-Read-only access covers the analysis half of this tool but not its purpose. The
-reason the tool exists is to submit a transaction at a time I cannot be awake
-for. Without `fspt-w` there is no way to complete that action, and the tool
-reduces to a projections viewer I have no particular need for.
+Read alone covers the watching half but not the point. The tool exists to
+complete an add at a time I cannot be awake for. Without `fspt-w` there is no
+way to finish that action.
 
 ---
 
 ## Safeguards
 
-- Credentials and OAuth tokens are stored locally and are never transmitted
-  anywhere except to Yahoo.
-- The tool refuses to run without a validated pick list. An empty or malformed
-  list is a no-op, not a fallback to autonomous behaviour.
-- Every write is bounded: at most one successful add/drop per league per run.
-- A hard cap on total requests per run, with exponential backoff on `4xx`/`5xx`.
-- A dry-run mode (`--dry-run`) that performs the full polling and matching path
-  and logs the transaction it *would* submit, without submitting it.
+- **Free-agent gate.** `transactions.assert_free_agent` refuses any player not
+  confirmed as `freeagents`. An unknown or missing status is treated as "still
+  on waivers" and declined — it fails closed.
+- **Explicit pairing.** Every pickup names the player it replaces. The tool
+  will not choose a drop.
+- **Bounded writes.** At most one successful add/drop per league per run.
+- **Request budget.** A hard cap on total API calls per run, with exponential
+  backoff on `429` and `5xx`.
+- **Dry run.** `--dry-run` walks the whole path — resolution, polling,
+  matching — and logs the transaction it would have sent, without sending it.
+- **Local credentials.** Tokens are stored at mode 0600, gitignored, and go
+  nowhere except Yahoo's token endpoint.
 
 ---
 
-## Configuration
+## Setup
 
 ```bash
-cp .env.example .env      # add Yahoo client ID and secret
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env             # Yahoo client id and secret
+cp leagues.example.json leagues.json
 cp picks.example.csv picks.csv
-python -m waiver_window.auth        # one-time OAuth consent
-python -m waiver_window.run --dry-run
+
+python -m waiver_window.auth     # one-time OAuth consent
+python -m waiver_window.leagues  # find your league and team keys
+python -m waiver_window.run --dry-run -v
 ```
 
-Scheduling on macOS is handled by a `launchd` job; see [docs/scheduling.md](docs/scheduling.md).
+Full notes in [docs/setup.md](docs/setup.md). Scheduling on macOS via `launchd`
+and `pmset` in [docs/scheduling.md](docs/scheduling.md).
 
 ---
 
 ## Status
 
-Active personal project. Read-only functionality is implemented against the
-Yahoo Fantasy Sports API. The transaction-submitting path is written but gated
-behind read/write API access, which is pending approval.
+Active personal project. The read path, name resolution, polling loop and
+free-agent gate are implemented and exercised. The submitting call is written
+but gated behind read/write API access, which is pending approval.
 
 ## License
 
