@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 from .browser_backend import BrowserBackend, BrowserUnavailable, clean
-from .resolve import build_leagues_offline, load_league_map
+from .resolve import _normalise, build_leagues_offline, load_league_map
 
 URL_VARIANTS = [
     "https://football.fantasysports.yahoo.com/f1/{lid}/players?status=A&pos=O&cut_type=9&stat1=S_PW_1&sort=AR&sdir=1",
@@ -105,6 +105,65 @@ def show_urls(backend: BrowserBackend, league, query: str) -> None:
             print(f"       {url[:120]}\n")
 
 
+def show_add_page(backend: BrowserBackend, league, player_name: str) -> None:
+    """Inspect the acquisition page for one player, without touching it.
+
+    This page has more than one form. A free agent shows a plain add; a player
+    still on waivers shows a *waiver claim* instead, which is exactly what this
+    tool must never submit. Telling those two apart is the point of this dump.
+
+    Nothing is clicked, checked, or submitted here.
+    """
+    known = backend._scan(league, "available_page")
+    entry = known.get(_normalise(player_name))
+    if entry is None:
+        print(f"{player_name!r} is not in the available list for {league.alias}.")
+        print("Available names, first 30:")
+        for name in sorted(e["name"] for e in known.values())[:30]:
+            print(f"  {name}")
+        return
+
+    print(f"{entry['name']} — id {entry['player_id']}, status {entry['status']!r}")
+    if entry["status"] != "freeagents":
+        print("NOTE: this player is NOT a free agent, so the page below is the")
+        print("      waiver-claim variant. That is useful — it is the form the")
+        print("      tool has to recognise and refuse. Nothing is submitted.\n")
+
+    url = backend._absolute(
+        entry["add_url"]
+        or backend.sel["addplayer_page"].format(
+            league_id=league.league_id, player_id=entry["player_id"]
+        )
+    )
+    print(f"GET {url}\n")
+    backend.page.goto(url, wait_until="domcontentloaded")
+
+    body = clean(backend.page.inner_text("body"))
+    print("--- visible text, first 700 chars ---")
+    print(body[:700])
+    print("\n--- forms ---")
+    for i, form in enumerate(backend.page.query_selector_all("form")):
+        print(f"  form[{i}] action={form.get_attribute('action')!r} "
+              f"method={form.get_attribute('method')!r} name={form.get_attribute('name')!r}")
+
+    print("\n--- inputs and buttons ---")
+    for el in backend.page.query_selector_all("input, button, select")[:40]:
+        tag = el.evaluate("e => e.tagName.toLowerCase()")
+        print(f"  {tag:7} type={el.get_attribute('type')!r:12} "
+              f"name={el.get_attribute('name')!r:22} "
+              f"value={(el.get_attribute('value') or '')[:34]!r} "
+              f"text={clean(el.inner_text())[:28]!r}")
+
+    print("\n--- rows offering a drop choice ---")
+    for row in backend._rows()[:40]:
+        control = row.query_selector("input[type='radio'], input[type='checkbox']")
+        if not control:
+            continue
+        label = clean(row.inner_text())[:70]
+        print(f"  name={control.get_attribute('name')!r:20} "
+              f"value={(control.get_attribute('value') or '')[:26]!r}  {label!r}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="waiver-window probe")
     parser.add_argument("name", nargs="?", default="Justin Jefferson")
@@ -112,6 +171,8 @@ def main() -> int:
                         help="dump the full cell structure of the first rows")
     parser.add_argument("--urls", action="store_true",
                         help="try several player-page URL forms and report row counts")
+    parser.add_argument("--add", action="store_true",
+                        help="inspect one player's acquisition page, read-only")
     parser.add_argument("--rows", type=int, default=3, help="rows to dump with --deep")
     args = parser.parse_args()
 
@@ -134,7 +195,9 @@ def main() -> int:
             print("Re-run: python -m waiver_window.login")
             return 1
 
-        if args.urls:
+        if args.add:
+            show_add_page(backend, league, args.name)
+        elif args.urls:
             show_urls(backend, league, args.name)
         elif args.deep:
             show_deep(backend, league, args.name, args.rows)

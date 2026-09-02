@@ -14,9 +14,11 @@
     "W ": "waivers",
     "W(": "waivers"
   },
-  "page_size": 120,
-  "max_scan_pages": 6,
+  "page_size": 25,
+  "max_scan_pages": 24,
   "submit_add": "input[type='submit'], button[type='submit']",
   "confirm_add": "input[value*='Confirm'], button:has-text('Confirm')",
-  "_note_add": "Add links are signed with a per-session crumb token, so they are scraped from the row rather than constructed. Calibrate submit/confirm with `probe --add \"Player Name\"`."
+  "_note_add": "Add links are signed with a per-session crumb token, so they are scraped from the row rather than constructed. Calibrate submit/confirm with `probe --add \"Player Name\"`.",
+  "_note_paging": "Yahoo paginates the players table 25 at a time via &count=<offset>. The table also contains ~95 spacer/nested rows per page, so row count is not player count - only rows carrying a /nfl/players/ link are counted.",
+  "addplayer_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/addplayer?apid={player_id}"
 }

@@ -162,8 +162,12 @@ class BrowserBackend(Backend):
             if not page_index:
                 break  # ran off the end of the list
             merged.update(page_index)
+            # The table carries spacer and nested rows, so a page is judged by
+            # the players actually found on it, never by its row count.
             if len(page_index) < page_size:
                 break
+        log.debug("Scanned %s: %d players over %d page(s)",
+                  page_key, len(merged), page_no + 1)
         return merged
 
     def warm_up(self, league: League) -> None:
