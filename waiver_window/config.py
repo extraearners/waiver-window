@@ -39,7 +39,11 @@ class Config:
         ]
     )
 
-    poll_interval_ms: int = field(default_factory=lambda: _int("POLL_INTERVAL_MS", 250))
+    # Two cadences. Before the clear time there is nothing to catch, so polling
+    # slowly avoids hundreds of pointless page loads; once the window opens the
+    # tight interval is what wins the race.
+    poll_interval_ms: int = field(default_factory=lambda: _int("POLL_INTERVAL_MS", 400))
+    poll_slow_ms: int = field(default_factory=lambda: _int("POLL_SLOW_MS", 15000))
     poll_start_lead_min: int = field(default_factory=lambda: _int("POLL_START_LEAD_MIN", 2))
     max_requests_per_run: int = field(default_factory=lambda: _int("MAX_REQUESTS_PER_RUN", 4000))
 

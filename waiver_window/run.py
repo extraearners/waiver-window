@@ -12,6 +12,7 @@ turns free.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import logging
 import time
 
@@ -24,12 +25,24 @@ from .transactions import WaiverGuard
 log = logging.getLogger(__name__)
 
 
+def seconds_until(clock: str) -> float:
+    """Seconds from now until the next occurrence of a local HH:MM."""
+    now = dt.datetime.now()
+    hour, minute = (int(part) for part in clock.split(":"))
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target += dt.timedelta(days=1)
+    return (target - now).total_seconds()
+
+
 def race_for_league(
     backend: Backend,
     league: resolve.League,
     targets: list[Target],
     interval_s: float,
     dry_run: bool,
+    slow_interval_s: float = 15.0,
+    fast_from: str | None = None,
 ) -> list[str]:
     """Poll a league's targets and add the first one that turns free.
 
@@ -81,7 +94,13 @@ def race_for_league(
             if not outcome.lost_race:
                 return results  # a real fault, stop touching this league
 
-        time.sleep(interval_s)
+        # Poll gently until the window is close, then tighten up. Each browser
+        # poll is a full page load, so a slow phase is the difference between a
+        # handful of requests and several hundred.
+        if fast_from is not None and seconds_until(fast_from) > 60:
+            time.sleep(slow_interval_s)
+        else:
+            time.sleep(interval_s)
 
     results.extend(
         f"TIMEOUT {t} — never became a free agent in the window" for t in remaining
@@ -112,7 +131,8 @@ def build_backend(kind: str, config: Config, headless: bool) -> tuple[Backend, d
     return BrowserBackend(headless=headless), resolve.build_leagues_offline(league_map)
 
 
-def run(backend_kind: str, dry_run: bool, headless: bool) -> int:
+def run(backend_kind: str, dry_run: bool, headless: bool,
+        fast_from: str | None = None) -> int:
     config = Config()
 
     all_picks = picklist.load(config.picks_source)
@@ -135,7 +155,13 @@ def run(backend_kind: str, dry_run: bool, headless: bool) -> int:
             targets = backend.prepare(league, league_picks)
             results.extend(
                 race_for_league(
-                    backend, league, targets, config.poll_interval_ms / 1000, dry_run
+                    backend,
+                    league,
+                    targets,
+                    config.poll_interval_ms / 1000,
+                    dry_run,
+                    slow_interval_s=config.poll_slow_ms / 1000,
+                    fast_from=fast_from,
                 )
             )
     finally:
@@ -161,12 +187,18 @@ def main() -> int:
         "--headed", action="store_true",
         help="browser backend: show the browser window instead of running headless",
     )
+    parser.add_argument(
+        "--fast-from", metavar="HH:MM",
+        help="local time the window opens (e.g. 00:00). Polls slowly until a "
+             "minute before it, then tightens to the fast interval.",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
     setup_logging(args.verbose)
     try:
-        return run(args.backend, args.dry_run, headless=not args.headed)
+        return run(args.backend, args.dry_run, headless=not args.headed,
+                   fast_from=args.fast_from)
     except (picklist.PickListError, resolve.ResolutionError, RuntimeError) as exc:
         log.error("%s", exc)
         return 1
