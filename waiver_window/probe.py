@@ -180,6 +180,52 @@ def show_add_page(backend: BrowserBackend, league, player_name: str) -> None:
     for name, dpid in sorted(backend.dpid_map().items()):
         print(f"  {dpid:>8}  {name}")
 
+def show_diagnose(backend: BrowserBackend, league) -> None:
+    """Report what a player-list page actually is when it yields no rows.
+
+    An empty scan can mean a throttled request, an interstitial, a changed
+    layout, or a genuinely empty list. Those need telling apart before any
+    selector is touched, so this reports the page rather than interpreting it.
+    """
+    for key in ("available_page", "all_players_page"):
+        url = backend.sel[key].format(league_id=league.league_id, offset=0)
+        print(f"\n=== {key} " + "=" * (52 - len(key)))
+        print(f"GET {url}")
+        try:
+            backend.page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  navigation failed: {type(exc).__name__}: {str(exc)[:120]}")
+            continue
+
+        print(f"  final url : {backend.page.url[:110]}")
+        print(f"  title     : {backend.page.title()[:90]}")
+
+        try:
+            backend.page.wait_for_selector(
+                backend.sel["player_name_cell"], timeout=backend.render_timeout_ms
+            )
+            print(f"  player links appeared within {backend.render_timeout_ms}ms")
+        except Exception:  # noqa: BLE001
+            print(f"  NO player links after {backend.render_timeout_ms}ms")
+
+        print(f"  rows matching player_row : {len(backend._rows())}")
+        print(f"  player links on page     : "
+              f"{len(backend.page.query_selector_all(backend.sel['player_name_cell']))}")
+        print(f"  tables on page           : "
+              f"{len(backend.page.query_selector_all('table'))}")
+        print(f"  indexed players          : {len(backend._index_page(league))}")
+
+        body = clean(backend.page.inner_text("body"))
+        print(f"  body length              : {len(body)}")
+        print("  --- body, first 500 chars ---")
+        print("  " + body[:500].replace("\n", "\n  "))
+
+        for phrase in ("unusual traffic", "rate limit", "too many requests",
+                       "try again later", "temporarily unavailable", "no players"):
+            if phrase in body.lower():
+                print(f"  !! page mentions {phrase!r}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="waiver-window probe")
     parser.add_argument("name", nargs="?", default="Justin Jefferson")
@@ -189,6 +235,8 @@ def main() -> int:
                         help="try several player-page URL forms and report row counts")
     parser.add_argument("--add", action="store_true",
                         help="inspect one player's acquisition page, read-only")
+    parser.add_argument("--diagnose", action="store_true",
+                        help="report what the player-list pages actually contain")
     parser.add_argument("--rows", type=int, default=3, help="rows to dump with --deep")
     args = parser.parse_args()
 
@@ -211,7 +259,9 @@ def main() -> int:
             print("Re-run: python -m waiver_window.login")
             return 1
 
-        if args.add:
+        if args.diagnose:
+            show_diagnose(backend, league)
+        elif args.add:
             show_add_page(backend, league, args.name)
         elif args.urls:
             show_urls(backend, league, args.name)
