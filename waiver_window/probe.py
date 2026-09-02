@@ -146,23 +146,33 @@ def show_add_page(backend: BrowserBackend, league, player_name: str) -> None:
         print(f"  form[{i}] action={form.get_attribute('action')!r} "
               f"method={form.get_attribute('method')!r} name={form.get_attribute('name')!r}")
 
-    print("\n--- inputs and buttons ---")
-    for el in backend.page.query_selector_all("input, button, select")[:40]:
-        tag = el.evaluate("e => e.tagName.toLowerCase()")
-        print(f"  {tag:7} type={el.get_attribute('type')!r:12} "
-              f"name={el.get_attribute('name')!r:22} "
-              f"value={(el.get_attribute('value') or '')[:34]!r} "
-              f"text={clean(el.inner_text())[:28]!r}")
+    print(f"\nclassify_page -> {backend.classify_page(body.lower())!r}")
 
-    print("\n--- rows offering a drop choice ---")
-    for row in backend._rows()[:40]:
-        control = row.query_selector("input[type='radio'], input[type='checkbox']")
-        if not control:
-            continue
-        label = clean(row.inner_text())[:70]
-        print(f"  name={control.get_attribute('name')!r:20} "
-              f"value={(control.get_attribute('value') or '')[:26]!r}  {label!r}")
+    print("\n--- controls INSIDE the acquisition form ---")
+    form = backend.page.query_selector(backend.sel["addplayer_form"])
+    if form is None:
+        print("  (no form matched addplayer_form — that selector needs fixing)")
+    else:
+        for el in form.query_selector_all("input, button, select, a[href*='addplayer']"):
+            tag = el.evaluate("e => e.tagName.toLowerCase()")
+            if tag == "input" and el.get_attribute("name") == "dpid":
+                continue  # listed separately below
+            html = el.evaluate("e => e.outerHTML")[:150]
+            print(f"  {tag:6} type={el.get_attribute('type')!r:10} "
+                  f"name={el.get_attribute('name')!r:14} "
+                  f"text={clean(el.inner_text())[:24]!r}")
+            print(f"         {html}")
 
+    print("\n--- what _find_submit would pick ---")
+    submit = backend._find_submit()
+    if submit is None:
+        print("  nothing — submit_add needs calibrating")
+    else:
+        print(f"  {submit.evaluate('e => e.outerHTML')[:200]}")
+
+    print("\n--- droppable players (dpid map) ---")
+    for name, dpid in sorted(backend.dpid_map().items()):
+        print(f"  {dpid:>8}  {name}")
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="waiver-window probe")

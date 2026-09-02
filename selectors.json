@@ -20,5 +20,17 @@
   "confirm_add": "input[value*='Confirm'], button:has-text('Confirm')",
   "_note_add": "Add links are signed with a per-session crumb token, so they are scraped from the row rather than constructed. Calibrate submit/confirm with `probe --add \"Player Name\"`.",
   "_note_paging": "Yahoo paginates the players table 25 at a time via &count=<offset>. The table also contains ~95 spacer/nested rows per page, so row count is not player count - only rows carrying a /nfl/players/ link are counted.",
-  "addplayer_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/addplayer?apid={player_id}"
+  "addplayer_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/addplayer?apid={player_id}",
+  "addplayer_form": "form[action*='addplayer']",
+  "drop_control": "input[name='dpid']",
+  "_note_page_type": "Yahoo names the acquisition page in its heading. A player still on waivers renders 'Claim Player From Waivers'; a free agent renders an add page. This is an independent second gate, checked at the moment of action, on top of the status read from the list.",
+  "claim_page_markers": [
+    "claim player from waivers",
+    "waiver claim",
+    "claim player"
+  ],
+  "add_page_markers": [
+    "add player",
+    "add free agent"
+  ]
 }

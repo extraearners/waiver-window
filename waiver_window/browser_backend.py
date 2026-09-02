@@ -184,98 +184,158 @@ class BrowserBackend(Backend):
     # --------------------------------------------------------------- backend
 
     def prepare(self, league: League, league_picks: list[picklist.Pick]) -> list[Target]:
+        """Resolve every name to the ids Yahoo's own form posts.
+
+        Runs before the window opens, so a misspelled name or a drop that is
+        not on the roster surfaces while the sheet can still be corrected.
+        """
         if not self._warm:
             self.warm_up(league)
 
-        roster_names = {
-            _normalise(clean(el.inner_text()))
-            for el in self.page.query_selector_all(self.sel["player_name_cell"])
-            if clean(el.inner_text())
-        }
-
-        # Scanned once, before the window opens, purely to catch a misspelled
-        # name while there is still time to fix the sheet.
+        # Scanned once, purely to turn add_player names into Yahoo player ids.
         known = self._scan(league, "all_players_page")
 
         targets: list[Target] = []
         for pick in league_picks:
-            if _normalise(pick.drop_player) not in roster_names:
-                log.error(
-                    "%s: %r is not on your roster in %s — skipping.",
-                    pick, pick.drop_player, league.alias,
-                )
-                continue
-
             entry = known.get(_normalise(pick.add_player))
             if entry is None:
                 log.error(
-                    "%s: %r did not appear anywhere in %s's player list. "
-                    "Check the spelling against Yahoo.",
-                    pick, pick.add_player, league.alias,
+                    "%s: %r did not appear in %s's player list. Check the "
+                    "spelling against Yahoo.", pick, pick.add_player, league.alias,
+                )
+                continue
+
+            provisional = Target(pick, add_ref=entry["player_id"], drop_ref="")
+            try:
+                self._load_acquisition_page(league, provisional)
+            except BrowserUnavailable:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                log.error("%s: could not load the acquisition page: %s", pick, exc)
+                continue
+
+            # The dpid list on this page *is* the roster, taken from the form
+            # that would post the drop — so it needs no separate roster lookup.
+            drops = self.dpid_map()
+            drop_id = drops.get(_normalise(pick.drop_player))
+            if not drop_id:
+                log.error(
+                    "%s: %r is not among the droppable players in %s. On the "
+                    "roster? Yahoo offered: %s",
+                    pick, pick.drop_player, league.alias,
+                    ", ".join(sorted(drops)[:6]) or "(none)",
                 )
                 continue
 
             targets.append(
-                Target(pick, add_ref=entry["player_id"], drop_ref=pick.drop_player)
+                Target(pick, add_ref=entry["player_id"], drop_ref=drop_id)
             )
-            log.info("Ready: %s  (player id %s, currently %s)",
-                     pick, entry["player_id"], entry["status"] or "unknown")
+            log.info(
+                "Ready: %s  (apid %s, dpid %s, currently %s)",
+                pick, entry["player_id"], drop_id, entry["status"] or "unknown",
+            )
 
         return targets
 
     def refresh_available(self, league: League) -> None:
-        """One scan of the available list, serving every target in the league.
+        """No-op during the race.
 
-        Yahoo ignores search parameters on this page, so a per-player lookup is
-        not possible. Scanning once per poll is also simply fewer requests than
-        one lookup per target would have been.
+        Scanning the paginated list costs ~24 requests, which is far too slow
+        for a first-come window. Status is read from each target's own
+        acquisition page instead — see `ownership`.
         """
-        self._available = self._scan(league, "available_page")
+
+    def _load_acquisition_page(self, league: League, target: Target) -> str:
+        """GET the acquisition page for one target. Returns its lowercased text."""
+        url = self.sel["addplayer_page"].format(
+            league_id=league.league_id, player_id=target.add_ref
+        )
+        self.page.goto(url, wait_until="domcontentloaded")
+        if "login" in self.page.url or "signin" in self.page.url:
+            raise BrowserUnavailable(
+                "The saved Yahoo session is no longer valid — Yahoo redirected to "
+                "sign-in. Re-run: python -m waiver_window.login"
+            )
+        return clean(self.page.inner_text("body")).lower()
+
+    def classify_page(self, body: str) -> str:
+        """What kind of acquisition page is this?
+
+        Yahoo names it in the heading: a player still on waivers gets
+        'Claim Player From Waivers', a free agent gets an add page. Anything
+        unrecognised returns '', which the gate refuses.
+        """
+        for marker in self.sel["claim_page_markers"]:
+            if marker in body:
+                return "waivers"
+        for marker in self.sel["add_page_markers"]:
+            if marker in body:
+                return "freeagents"
+        return ""
 
     def ownership(self, league: League, target: Target) -> str:
-        entry = getattr(self, "_available", {}).get(_normalise(target.pick.add_player))
-        if entry is None:
-            # Absent from the available list means somebody holds them.
+        """Current status for one target, straight from its acquisition page.
+
+        One request per target per pass, rather than re-walking the whole
+        paginated pool. The page is also the thing we are about to act on, so
+        this reads the same state the submit would.
+        """
+        try:
+            body = self._load_acquisition_page(league, target)
+        except BrowserUnavailable:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a failed poll is not fatal
+            log.debug("Poll failed for %s: %s", target.pick.add_player, exc)
+            return ""
+
+        kind = self.classify_page(body)
+        if kind:
+            self._last_body = body
+            return kind
+
+        if "is on another team" in body or "already owned" in body:
             return "team"
-        return entry["status"]
+        return ""
 
     def add_drop(self, league: League, target: Target, *, dry_run: bool) -> Outcome:
+        # First gate: the status the caller polled.
         status = self.ownership(league, target)
-        # Same gate as the API path. Raises WaiverGuard on anything but a
-        # confirmed free agent, including an unreadable status.
         transactions.assert_free_agent(status, target.pick.add_player)
 
-        entry = self._available.get(_normalise(target.pick.add_player), {})
-        add_url = entry.get("add_url") or ""
-        if not add_url:
+        # Second gate, independent of the first: Yahoo names the page it served.
+        # `ownership` has just loaded it, so this reads the very page a submit
+        # would post from — not a status observed somewhere else earlier.
+        body = getattr(self, "_last_body", "")
+        kind = self.classify_page(body)
+        if kind != "freeagents":
+            raise transactions.WaiverGuard(
+                f"Yahoo served a {kind or 'unrecognised'} page for "
+                f"{target.pick.add_player} — refusing. This tool never submits a "
+                "waiver claim."
+            )
+
+        drop_control = self._find_drop_control(target.drop_ref, target.pick.drop_player)
+        if drop_control is None:
             return Outcome(
                 ok=False,
                 detail=(
-                    f"{target.pick.add_player} is listed free but the page offered "
-                    "no Add link. Yahoo signs those links per session, so one "
-                    "cannot be constructed — treating this as not addable."
+                    f"No drop control for {target.pick.drop_player!r} on the page. "
+                    "Not submitting a partial move."
                 ),
             )
 
         if dry_run:
             log.info(
-                "[dry-run] would follow the Add link for %s (id %s) and drop %s in %s",
+                "[dry-run] would add %s (apid %s) and drop %s (dpid %s) in %s",
                 target.pick.add_player, target.add_ref,
-                target.pick.drop_player, league.alias,
+                target.pick.drop_player, target.drop_ref, league.alias,
             )
-            log.debug("[dry-run] add url: %s", add_url)
             return Outcome(ok=True, detail="dry run — nothing submitted")
 
-        self.page.goto(self._absolute(add_url), wait_until="domcontentloaded")
+        drop_control.check()
 
-        if not self._select_drop(target.pick.drop_player):
-            return Outcome(
-                ok=False,
-                detail=f"Could not find a drop control for {target.pick.drop_player!r}.",
-            )
-
-        submit = self.page.query_selector(self.sel["submit_add"])
-        if not submit:
+        submit = self._find_submit()
+        if submit is None:
             return Outcome(ok=False, detail="Could not find the submit control.")
         submit.click()
         self.page.wait_for_load_state("domcontentloaded")
@@ -286,6 +346,61 @@ class BrowserBackend(Backend):
             self.page.wait_for_load_state("domcontentloaded")
 
         return self._read_result(target)
+
+    def _find_drop_control(self, drop_id: str, drop_name: str):
+        """The radio for the player being dropped.
+
+        Matched on Yahoo's own dpid where one was resolved, since that is the
+        value the form actually posts. Name text is only a fallback.
+        """
+        if drop_id:
+            control = self.page.query_selector(
+                f"{self.sel['drop_control']}[value='{drop_id}']"
+            )
+            if control is not None:
+                return control
+            log.warning("dpid %s not on the page; falling back to a name match.", drop_id)
+
+        target = _normalise(drop_name)
+        for control in self.page.query_selector_all(self.sel["drop_control"]):
+            row = control.evaluate_handle("e => e.closest('tr')").as_element()
+            if row and target in _normalise(clean(row.inner_text())):
+                return control
+        return None
+
+    def _find_submit(self):
+        """The submit control, scoped to the acquisition form.
+
+        The page carries dozens of unrelated icon buttons in its header, so a
+        page-wide search finds the wrong thing. Search inside the form only.
+        """
+        form = self.page.query_selector(self.sel["addplayer_form"])
+        scope = form or self.page
+        for selector in (
+            "input[type='submit']",
+            "button[type='submit']",
+            "button:not([type])",
+        ):
+            control = scope.query_selector(selector)
+            if control is not None:
+                return control
+        return None
+
+    def dpid_map(self) -> dict[str, str]:
+        """Normalised name -> dpid for every droppable player on the page."""
+        mapping: dict[str, str] = {}
+        for control in self.page.query_selector_all(self.sel["drop_control"]):
+            value = control.get_attribute("value") or ""
+            row = control.evaluate_handle("e => e.closest('tr')").as_element()
+            if not row or not value:
+                continue
+            # The row's text leads with an em dash and a tab, so the player
+            # link is the only clean source for the name.
+            link = row.query_selector(self.sel["player_name_cell"])
+            name = clean(link.inner_text()) if link else ""
+            if name:
+                mapping[_normalise(name)] = value
+        return mapping
 
     def _absolute(self, href: str) -> str:
         if href.startswith("http"):
@@ -310,18 +425,6 @@ class BrowserBackend(Backend):
                 "Check the roster by hand: " + body[:150]
             ),
         )
-
-    def _select_drop(self, drop_player: str):
-        """Pick the radio/checkbox matching the named drop player."""
-        target = _normalise(drop_player)
-        for row in self._rows():
-            if target not in _normalise(clean(row.inner_text())):
-                continue
-            control = row.query_selector("input[type='radio'], input[type='checkbox']")
-            if control:
-                control.check()
-                return control
-        return None
 
     def close(self) -> None:
         for closer in (
