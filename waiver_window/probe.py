@@ -117,8 +117,14 @@ def show_add_page(backend: BrowserBackend, league, player_name: str) -> None:
     known = backend._scan(league, "available_page")
     entry = known.get(_normalise(player_name))
     if entry is None:
-        print(f"{player_name!r} is not in the available list for {league.alias}.")
-        print("Available names, first 30:")
+        print(f"{player_name!r} was not in the available list; "
+              "falling back to the full player list.")
+        known = backend._scan(league, "all_players_page")
+        entry = known.get(_normalise(player_name))
+
+    if entry is None:
+        print(f"{player_name!r} is not in {league.alias}'s player list at all "
+              f"({len(known)} players scanned).")
         for name in sorted(e["name"] for e in known.values())[:30]:
             print(f"  {name}")
         return

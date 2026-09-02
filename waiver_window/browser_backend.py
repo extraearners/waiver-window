@@ -73,6 +73,7 @@ class BrowserBackend(Backend):
         self._browser = self._pw.chromium.launch(headless=headless)
         self._context = self._browser.new_context(storage_state=storage_state)
         self.page = self._context.new_page()
+        self.render_timeout_ms = int(self.sel.get("render_timeout_ms", 8000))
         self._warm = False
         self._available: dict[str, dict] = {}
 
@@ -144,22 +145,46 @@ class BrowserBackend(Backend):
             return href
         return ""
 
+    def _goto_player_page(self, url: str) -> bool:
+        """Load a player list page and wait for its table to actually populate.
+
+        domcontentloaded fires before Yahoo fills the table, so indexing
+        straight after it can silently read an empty DOM — which the caller
+        would otherwise mistake for the end of the list. Returns False when no
+        player rows appeared.
+        """
+        self.page.goto(url, wait_until="domcontentloaded")
+        if "login" in self.page.url or "signin" in self.page.url:
+            raise BrowserUnavailable(
+                "The saved Yahoo session is no longer valid — Yahoo redirected "
+                "to sign-in. Re-run: python -m waiver_window.login"
+            )
+        try:
+            self.page.wait_for_selector(
+                self.sel["player_name_cell"], timeout=self.render_timeout_ms
+            )
+            return True
+        except Exception:  # noqa: BLE001 - a genuinely empty page also lands here
+            return False
+
     def _scan(self, league: League, page_key: str) -> dict[str, dict]:
         """Walk the paginated player list and merge every page into one index."""
         merged: dict[str, dict] = {}
-        page_size = int(self.sel.get("page_size", 120))
-        for page_no in range(int(self.sel.get("max_scan_pages", 6))):
+        page_size = int(self.sel.get("page_size", 25))
+        for page_no in range(int(self.sel.get("max_scan_pages", 24))):
             url = self.sel[page_key].format(
                 league_id=league.league_id, offset=page_no * page_size
             )
-            self.page.goto(url, wait_until="domcontentloaded")
-            if "login" in self.page.url or "signin" in self.page.url:
-                raise BrowserUnavailable(
-                    "The saved Yahoo session is no longer valid — Yahoo redirected "
-                    "to sign-in. Re-run: python -m waiver_window.login"
-                )
-            page_index = self._index_page(league)
+            rendered = self._goto_player_page(url)
+            page_index = self._index_page(league) if rendered else {}
             if not page_index:
+                if page_no == 0:
+                    # An empty first page is far more likely to be a page that
+                    # did not render than a league with no players in it.
+                    log.warning(
+                        "%s returned no players on its first page (rendered=%s). "
+                        "Treating the scan as empty.", page_key, rendered,
+                    )
                 break  # ran off the end of the list
             merged.update(page_index)
             # The table carries spacer and nested rows, so a page is judged by
@@ -264,6 +289,15 @@ class BrowserBackend(Backend):
                 "The saved Yahoo session is no longer valid — Yahoo redirected to "
                 "sign-in. Re-run: python -m waiver_window.login"
             )
+        # Wait for the acquisition form so the page is judged on its real
+        # content. A page that never renders it falls through to classify_page,
+        # which returns '' and is refused.
+        try:
+            self.page.wait_for_selector(
+                self.sel["addplayer_form"], timeout=self.render_timeout_ms
+            )
+        except Exception:  # noqa: BLE001
+            log.debug("Acquisition form did not render for %s", url)
         return clean(self.page.inner_text("body")).lower()
 
     def classify_page(self, body: str) -> str:

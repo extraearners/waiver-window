@@ -32,5 +32,7 @@
   "add_page_markers": [
     "add player",
     "add free agent"
-  ]
+  ],
+  "render_timeout_ms": 8000,
+  "_note_render": "Yahoo fills these tables after domcontentloaded, so every page load waits for real content before being indexed. Without that a slow render reads as an empty page and the scan stops early."
 }
