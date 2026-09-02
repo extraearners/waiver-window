@@ -45,6 +45,12 @@ def race_for_league(
     results: list[str] = []
 
     while remaining and time.time() < deadline:
+        # The browser backend reads the whole available list in one request and
+        # answers every target from it, so refresh once per pass, not per target.
+        refresh = getattr(backend, "refresh_available", None)
+        if refresh is not None:
+            refresh(league)
+
         for target in list(remaining):
             status = backend.ownership(league, target)
 

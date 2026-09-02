@@ -28,24 +28,35 @@ URL_VARIANTS = [
 
 
 def show_current(backend: BrowserBackend, league, query: str) -> None:
-    url = backend._url("players_page", league_id=league.league_id,
-                       query=query.replace(" ", "+"))
+    url = backend.sel["available_page"].format(league_id=league.league_id, offset=0)
     print(f"GET {url}\n")
     backend.page.goto(url, wait_until="domcontentloaded")
     rows = backend._rows()
     print(f"player_row matched {len(rows)} rows\n")
-    for i, row in enumerate(rows[:8]):
+
+    counts: dict[str, int] = {}
+    for i, row in enumerate(rows):
         link = row.query_selector(backend.sel["player_name_cell"])
+        if not link:
+            continue
         cell = row.query_selector(backend.sel["player_status_cell"])
-        name = clean(link.inner_text()) if link else "(no name cell)"
+        name = clean(link.inner_text())
         raw = clean(cell.inner_text()) if cell else "(no status cell)"
-        print(f"  [{i}] {name!r:26} status={raw!r:12} -> {backend._read_status(row)!r}")
+        status = backend._read_status(row, league)
+        counts[status or "(unreadable)"] = counts.get(status or "(unreadable)", 0) + 1
+        if i < 12:
+            add = backend._row_add_url(row)
+            print(f"  [{i}] {name!r:26} raw={raw!r:14} -> {status!r}")
+            print(f"       add link: {add[:96] or '(none)'}")
+
+    print("\nStatus tally across the page:")
+    for status, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        print(f"  {status:14} {n}")
 
 
 def show_deep(backend: BrowserBackend, league, query: str, rows_to_dump: int) -> None:
     """Dump every cell of the first few rows, so the real columns are visible."""
-    url = backend._url("players_page", league_id=league.league_id,
-                       query=query.replace(" ", "+"))
+    url = backend.sel["available_page"].format(league_id=league.league_id, offset=0)
     backend.page.goto(url, wait_until="domcontentloaded")
 
     rows = backend._rows()
@@ -113,8 +124,9 @@ def main() -> int:
     try:
         league = next(iter(build_leagues_offline(load_league_map()).values()))
         backend.page.goto(
-            backend._url("roster_page", league_id=league.league_id,
-                         team_id=league.team_id),
+            backend.sel["roster_page"].format(
+                league_id=league.league_id, team_id=league.team_id
+            ),
             wait_until="domcontentloaded",
         )
         if "login" in backend.page.url or "signin" in backend.page.url:

@@ -1,22 +1,22 @@
 {
-  "_comment": "Yahoo's markup changes without notice. Run `python -m waiver_window.probe` while logged in to re-derive these, then edit here. No code change needed.",
-
-  "players_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/players?status=ALL&search={query}&sort=AR",
+  "_comment": "Derived from a live probe run, not guessed. Yahoo's markup changes without notice - re-run `python -m waiver_window.probe --deep` and correct these. No code change needed.",
+  "_note_search": "Yahoo ignores search= on the players page; every variant returned the full 120-row page. So the tool loads the available-player list and scans it client-side instead.",
+  "available_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/players?status=A&pos=O&sort=AR&count={offset}",
+  "all_players_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/players?status=ALL&pos=O&sort=AR&count={offset}",
   "roster_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/{team_id}",
-  "add_page": "https://football.fantasysports.yahoo.com/f1/{league_id}/addplayer?apid={player_id}",
-
   "player_row": "table tbody tr",
   "player_name_cell": "a[href*='/nfl/players/']",
-  "player_status_cell": ".ysf-player-status, span.status, td:nth-child(2)",
-
-  "roster_player_link": "a[href*='/nfl/players/']",
-
-  "drop_radio_for": "input[type='radio'][value*='{player_id}']",
-  "submit_add": "button[type='submit'], input[type='submit'][value*='Submit']",
-  "confirm_add": "button:has-text('Confirm'), input[value*='Confirm']",
-
+  "_note_status": "td[3] holds ownership. An owned player shows the fantasy team name linked to /f1/{league_id}/{team_number}. A free agent or waiver player shows a text label instead.",
+  "player_status_cell": "td:nth-of-type(4)",
+  "owner_team_link": "a[href*='/f1/{league_id}/']",
   "status_text_map": {
     "FA": "freeagents",
-    "W": "waivers"
-  }
+    "W ": "waivers",
+    "W(": "waivers"
+  },
+  "page_size": 120,
+  "max_scan_pages": 6,
+  "submit_add": "input[type='submit'], button[type='submit']",
+  "confirm_add": "input[value*='Confirm'], button:has-text('Confirm')",
+  "_note_add": "Add links are signed with a per-session crumb token, so they are scraped from the row rather than constructed. Calibrate submit/confirm with `probe --add \"Player Name\"`."
 }
