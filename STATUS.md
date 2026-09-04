@@ -50,10 +50,28 @@ explicit list, so nothing can fire on a stale name. Fill it in on the night.
 600 players — truncated, not exhausted, which would silently miss a target
 further down the list. That now logs a warning when it happens.
 
+## Pick list now lives in a Google Sheet
+
+`PICKS_SOURCE` in `.env` points at the sheet's `export?format=csv` URL, which
+reads live — no publish cache, so a phone edit is visible immediately. The
+sheet is link-shared, not published; `.env` is gitignored.
+
+Columns are `league, priority, add_player, drop_player, max_wait_min`, with
+dropdowns on rows 2-11: league (Chicago / Dallas), priority (1 / 2 / 3),
+max_wait_min (25 / 15 / 40). The loader reads by column name, so the sheet's
+column order can change without touching the code.
+
+Aliases are `Chicago` (49039, team 6) and `Dallas` (833119, team 7).
+
+## Not scheduled
+
+There is no launchd job and no pmset wake. The run is manual, and deliberately
+so until a live run has been watched at least once.
+
 ## Next steps, in order
 
-1. Follow `RUNBOOK.md` on a Tuesday evening
-2. First live run `--headed` and watched
+1. Wait for a night where a genuine free agent is worth adding
+2. Fill the sheet, dry run, then the live command `--headed` and watched
 3. Only after that works: `launchd` + `pmset` per `docs/scheduling.md`
 
 ## Yahoo API
