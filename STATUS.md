@@ -1,6 +1,6 @@
 # Where this stands
 
-Last worked: 2026-09-01, evening PT.
+Last worked: 2026-09-03, evening PT.
 
 ## Working, verified against the live site
 
@@ -14,39 +14,47 @@ Last worked: 2026-09-01, evening PT.
   status read, and the page heading Yahoo serves
 - Two-speed polling around `--fast-from`
 
+Also verified 2026-09-03, against a genuine free agent (Cyrus Allen, apid
+42773, after he cleared waivers):
+
+- `classify_page` returns `freeagents` on a real add page
+- the full dry run reaches submit and reports
+  `WON [league_A #1] +Cyrus Allen (open slot)`
+- the empty-page problem is solved — it was never Yahoo. `wait_for_selector`
+  defaults to waiting for *visibility*, and Yahoo's table has player links that
+  are attached but not visible, so the wait timed out on a page that had loaded
+  fine. Both waits now check attachment, and neither can empty a scan: pages
+  are indexed regardless and judged by the players found.
+
 ## Not verified
 
-**The submit control.** `_find_submit` falls back to `button:not([type])`
-inside the acquisition form. Nobody has seen what that actually picks. No live
-run should happen until the `--- what _find_submit would pick ---` section of
-`probe --add` has been read. This is the one thing blocking a real pickup.
+**No add has ever been submitted.** Everything proven is either a refusal or a
+dry run. The submit path itself is reasoned from the page's structure, not
+observed working:
 
-**The success path.** Everything proven so far is refusal. No add has ever been
-submitted. Cannot be proven until a target is genuinely a free agent.
+- the acquisition form has no submit control; Yahoo posts it from script, so
+  the tool calls `form.submit()` directly. The form carries its own hidden
+  `stage`, `crumb` and `apid`.
+- drops are scripted trigger buttons over hidden inputs, so the trigger is
+  clicked rather than the input checked.
 
-## Open problem
+Both are sound readings of the live DOM, and neither has actually run. The
+first live run should be `--headed`, watched, on a player genuinely wanted.
 
-`available_page` (`status=A`) returned 25 players early in the evening and then
-none, with `rendered=False` — the player links never appeared within 8s. Cause
-unknown. Candidates: throttling after the dry run's several hundred requests,
-an interstitial, a layout change, or a genuinely empty list.
+## State it was left in
 
-`probe --diagnose` was written to tell these apart and **has not been run yet**.
-That is the next command.
+`picks.csv` is **empty on purpose**. The tool refuses to run without an
+explicit list, so nothing can fire on a stale name. Fill it in on the night.
 
-Note the race path does not depend on this page — `prepare` uses
-`all_players_page` and polling uses each target's own acquisition page. But an
-unexplained empty scan is not something to leave sitting there.
+`max_scan_pages` raised 24 -> 40 after a scan stopped exactly on the old cap at
+600 players — truncated, not exhausted, which would silently miss a target
+further down the list. That now logs a warning when it happens.
 
 ## Next steps, in order
 
-1. `python -m waiver_window.probe --diagnose`
-2. Fix whatever that reveals
-3. `python -m waiver_window.probe --add "<a real free agent>"` — read the
-   submit-control section, correct `submit_add` in `selectors.json`
-4. Supervised live run: `run --backend browser --headed --fast-from 00:00 -v`
-   on a player actually wanted. This is the first real write.
-5. Only then: `launchd` + `pmset` scheduling per docs/scheduling.md
+1. Follow `RUNBOOK.md` on a Tuesday evening
+2. First live run `--headed` and watched
+3. Only after that works: `launchd` + `pmset` per `docs/scheduling.md`
 
 ## Yahoo API
 

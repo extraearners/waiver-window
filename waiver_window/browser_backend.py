@@ -195,6 +195,14 @@ class BrowserBackend(Backend):
             if page_index and not rendered:
                 log.debug("Wait reported nothing, but %d players were present.",
                           len(page_index))
+            if page_no + 1 == int(self.sel.get("max_scan_pages", 24)) and page_index:
+                log.warning(
+                    "Scan stopped on the %d-page cap with the list still "
+                    "returning players — it was truncated, not exhausted. A "
+                    "target further down would not have been found. Raise "
+                    "max_scan_pages in selectors.json.",
+                    page_no + 1,
+                )
             if not page_index:
                 if page_no == 0:
                     # An empty first page is far more likely to be a page that
