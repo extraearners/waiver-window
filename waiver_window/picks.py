@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,7 +44,16 @@ class PickListError(ValueError):
 def _read_source(source: str, timeout: int = 20) -> str:
     """Read the pick list from a local path or a published-CSV URL."""
     if source.startswith(("http://", "https://")):
-        response = requests.get(source, timeout=timeout)
+        # Google serves published sheets through a cache, and an edit made
+        # shortly before the run can otherwise be missed. A unique parameter
+        # and no-cache headers ask for the current version.
+        separator = "&" if "?" in source else "?"
+        url = f"{source}{separator}_cb={int(time.time())}"
+        response = requests.get(
+            url,
+            timeout=timeout,
+            headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+        )
         response.raise_for_status()
         return response.text
 
