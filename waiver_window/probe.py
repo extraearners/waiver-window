@@ -176,6 +176,27 @@ def show_add_page(backend: BrowserBackend, league, player_name: str) -> None:
     else:
         print(f"  {submit.evaluate('e => e.outerHTML')[:200]}")
 
+    print("\n--- submit candidates anywhere on the page ---")
+    wanted = ("add player", "add free agent", "submit", "confirm", "continue")
+    seen = set()
+    for el in backend.page.query_selector_all("button, input, a"):
+        label = " ".join(filter(None, [
+            clean(el.inner_text()),
+            el.get_attribute("value") or "",
+            el.get_attribute("title") or "",
+            el.get_attribute("aria-label") or "",
+        ])).lower()
+        if not any(w in label for w in wanted):
+            continue
+        html = el.evaluate("e => e.outerHTML")[:190]
+        if html in seen:
+            continue
+        seen.add(html)
+        in_form = el.evaluate(
+            "e => !!e.closest(\"form[action*='addplayer']\")"
+        )
+        print(f"  in_form={in_form}  {html}")
+
     print("\n--- droppable players (dpid map) ---")
     for name, dpid in sorted(backend.dpid_map().items()):
         print(f"  {dpid:>8}  {name}")
