@@ -53,7 +53,22 @@ def race_for_league(
     if not targets:
         return [f"{league.alias}: nothing ready to attempt"]
 
-    deadline = time.time() + max(t.pick.max_wait_min for t in targets) * 60
+    # max_wait_min means "keep trying for this long after the window opens",
+    # not "for this long from launch". Starting early to be ready must not eat
+    # into the time actually spent racing, so when --fast-from names the
+    # opening time the budget is measured from there.
+    budget_s = max(t.pick.max_wait_min for t in targets) * 60
+    if fast_from is not None:
+        deadline = time.time() + seconds_until(fast_from) + budget_s
+    else:
+        deadline = time.time() + budget_s
+    log.info(
+        "Watching %s until %s (%d min after %s).",
+        league.alias,
+        dt.datetime.fromtimestamp(deadline).strftime("%H:%M:%S"),
+        budget_s // 60,
+        fast_from or "now",
+    )
     remaining = list(targets)
     results: list[str] = []
 

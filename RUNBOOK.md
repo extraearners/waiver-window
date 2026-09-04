@@ -28,7 +28,9 @@ Redirected to sign-in? Re-run `python -m waiver_window.login`.
 
    - `priority` — fallback order within a league. First one that comes free wins.
    - `drop_player` — leave blank only if that roster genuinely has an open slot.
-   - `max_wait_min` — 25 covers a start at 11:50 plus lag after midnight.
+   - `max_wait_min` — how long to keep trying **after midnight**, not from
+     launch. With `--fast-from 00:00`, 25 means it gives up at 00:25 no
+     matter how early you started.
    - Names must match Yahoo's spelling. `prepare` checks this and tells you.
 
    To edit from a phone instead, put the same columns in a Google Sheet,
@@ -52,7 +54,10 @@ Redirected to sign-in? Re-run `python -m waiver_window.login`.
 ```
 
 Polls every 15s until 11:59, then every 400ms. Adds on the flip to free agent.
-Stops after `max_wait_min`. `--headed` lets you watch; drop it once you trust it.
+Gives up `max_wait_min` after midnight — starting earlier costs nothing.
+`--headed` lets you watch; drop it once you trust it.
+
+Without `--fast-from` the budget runs from launch instead, so always pass it.
 
 **This makes real roster moves.** There is no `--dry-run` on that line.
 
