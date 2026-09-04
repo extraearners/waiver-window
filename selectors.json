@@ -34,5 +34,7 @@
     "add free agent"
   ],
   "render_timeout_ms": 8000,
-  "_note_render": "Yahoo fills these tables after domcontentloaded, so every page load waits for real content before being indexed. Without that a slow render reads as an empty page and the scan stops early."
+  "_note_render": "Yahoo fills these tables after domcontentloaded, so every page load waits for real content before being indexed. Without that a slow render reads as an empty page and the scan stops early.",
+  "drop_trigger": "button.add-drop-trigger-btn[data-check-box-value^='{dpid}']",
+  "_note_submit": "The acquisition form has no submit control; Yahoo posts it from script. The form already carries its hidden stage, crumb and apid, so the tool submits the form itself. Drops are JS trigger buttons over hidden inputs, so the trigger is clicked rather than the input checked, letting Yahoo's own handler set its state."
 }

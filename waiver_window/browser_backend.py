@@ -409,7 +409,7 @@ class BrowserBackend(Backend):
             return Outcome(ok=True, detail="dry run — nothing submitted")
 
         if drop_control is not None:
-            drop_control.check()
+            self._activate(drop_control)
         else:
             # No drop was named, so none is chosen. If Yahoo turns out to
             # require one the submit fails and is reported — the tool does not
@@ -418,9 +418,13 @@ class BrowserBackend(Backend):
                      target.pick.add_player)
 
         submit = self._find_submit()
-        if submit is None:
-            return Outcome(ok=False, detail="Could not find the submit control.")
-        submit.click()
+        if submit is not None:
+            submit.click()
+        elif not self._submit_form():
+            return Outcome(
+                ok=False,
+                detail="No submit control and no acquisition form to post.",
+            )
         self.page.wait_for_load_state("domcontentloaded")
 
         confirm = self.page.query_selector(self.sel["confirm_add"])
@@ -431,16 +435,27 @@ class BrowserBackend(Backend):
         return self._read_result(target)
 
     def _find_drop_control(self, drop_id: str, drop_name: str):
-        """The radio for the player being dropped.
+        """The control that marks a player for dropping.
 
-        Matched on Yahoo's own dpid where one was resolved, since that is the
-        value the form actually posts. Name text is only a fallback.
+        Yahoo puts a scripted trigger button over a hidden input, so the
+        trigger is what gets clicked — that lets Yahoo's own handler set the
+        form state instead of this code imitating it. The hidden input is only
+        a fallback for a layout without the trigger.
+
+        Note the data attribute's value carries a trailing space, hence the
+        prefix match.
         """
         if drop_id:
+            trigger = self.page.query_selector(
+                self.sel["drop_trigger"].format(dpid=drop_id)
+            )
+            if trigger is not None:
+                return trigger
             control = self.page.query_selector(
                 f"{self.sel['drop_control']}[value='{drop_id}']"
             )
             if control is not None:
+                log.warning("No trigger for dpid %s; using the hidden input.", drop_id)
                 return control
             log.warning("dpid %s not on the page; falling back to a name match.", drop_id)
 
@@ -450,6 +465,28 @@ class BrowserBackend(Backend):
             if row and target in _normalise(clean(row.inner_text())):
                 return control
         return None
+
+    @staticmethod
+    def _activate(control) -> None:
+        """Mark a drop. Clicks a trigger button, checks a bare input."""
+        tag = control.evaluate("e => e.tagName.toLowerCase()")
+        if tag == "input":
+            control.check()
+        else:
+            control.click()
+
+    def _submit_form(self) -> bool:
+        """Post the acquisition form.
+
+        The page has no submit control — Yahoo posts from script — but the
+        form already holds its own hidden stage, crumb and apid, so submitting
+        it directly sends exactly what Yahoo would have sent.
+        """
+        form = self.page.query_selector(self.sel["addplayer_form"])
+        if form is None:
+            return False
+        form.evaluate("f => f.submit()")
+        return True
 
     def _find_submit(self):
         """The submit control, scoped to the acquisition form.
