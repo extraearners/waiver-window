@@ -146,12 +146,21 @@ class BrowserBackend(Backend):
         return ""
 
     def _goto_player_page(self, url: str) -> bool:
-        """Load a player list page and wait for its table to actually populate.
+        """Load a player list page and wait for its table to populate.
 
-        domcontentloaded fires before Yahoo fills the table, so indexing
-        straight after it can silently read an empty DOM — which the caller
-        would otherwise mistake for the end of the list. Returns False when no
-        player rows appeared.
+        Two things to get right here, both learned the hard way.
+
+        Yahoo fills the table after domcontentloaded, so indexing immediately
+        can read an empty DOM. But the table also contains player links that
+        are present and not visible — off in the horizontally scrolled stats
+        columns — and Playwright's wait_for_selector defaults to waiting for
+        *visibility*. Waiting that way times out on a page that is in fact
+        fully loaded. So the wait is on attachment to the DOM, which is what
+        actually matters for reading it.
+
+        The return value is advisory, for logging only. The caller indexes the
+        page either way and judges it by what it finds, so a wrong answer here
+        can no longer empty out a scan.
         """
         self.page.goto(url, wait_until="domcontentloaded")
         if "login" in self.page.url or "signin" in self.page.url:
@@ -161,10 +170,14 @@ class BrowserBackend(Backend):
             )
         try:
             self.page.wait_for_selector(
-                self.sel["player_name_cell"], timeout=self.render_timeout_ms
+                self.sel["player_name_cell"],
+                state="attached",
+                timeout=self.render_timeout_ms,
             )
             return True
         except Exception:  # noqa: BLE001 - a genuinely empty page also lands here
+            log.debug("No player links attached within %dms: %s",
+                      self.render_timeout_ms, url)
             return False
 
     def _scan(self, league: League, page_key: str) -> dict[str, dict]:
@@ -176,7 +189,12 @@ class BrowserBackend(Backend):
                 league_id=league.league_id, offset=page_no * page_size
             )
             rendered = self._goto_player_page(url)
-            page_index = self._index_page(league) if rendered else {}
+            # Indexed regardless of the wait's verdict: the page is judged by
+            # the players actually found on it, never by a timeout.
+            page_index = self._index_page(league)
+            if page_index and not rendered:
+                log.debug("Wait reported nothing, but %d players were present.",
+                          len(page_index))
             if not page_index:
                 if page_no == 0:
                     # An empty first page is far more likely to be a page that
@@ -293,11 +311,16 @@ class BrowserBackend(Backend):
         # content. A page that never renders it falls through to classify_page,
         # which returns '' and is refused.
         try:
+            # Attachment, not visibility — same reason as the list pages.
             self.page.wait_for_selector(
-                self.sel["addplayer_form"], timeout=self.render_timeout_ms
+                self.sel["addplayer_form"],
+                state="attached",
+                timeout=self.render_timeout_ms,
             )
         except Exception:  # noqa: BLE001
-            log.debug("Acquisition form did not render for %s", url)
+            # Not fatal, and not a decision. classify_page reads the body
+            # either way, and an unrecognised page is refused by the gate.
+            log.debug("Acquisition form did not attach for %s", url)
         return clean(self.page.inner_text("body")).lower()
 
     def classify_page(self, body: str) -> str:
